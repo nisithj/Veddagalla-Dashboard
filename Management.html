@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Davora Group - Executive Dashboard</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #0d1117; /* Dark CEO theme */
+            color: white;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .dashboard-container {
+            width: 90%;
+            max-width: 900px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status-card {
+            background: #161b22;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            border: 2px solid #30363d;
+            margin-bottom: 20px;
+        }
+        .healthy { color: #4caf50; border-color: #4caf50; }
+        .critical { color: #f44336; border-color: #f44336; animation: pulse 2s infinite; }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.4); }
+            70% { box-shadow: 0 0 0 15px rgba(244, 67, 54, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0); }
+        }
+
+        .chart-container {
+            background: white; /* Graph looks better on white for contrast */
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-container">
+        <div class="header">
+            <h1>Davora Group</h1>
+            <p>Real-Time Factory Outturn Performance</p>
+        </div>
+
+        <div id="statusAlert" class="status-card">Connecting to Factory...</div>
+
+        <div class="chart-container">
+            <canvas id="outturnChart"></canvas>
+        </div>
+    </div>
+
+    
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, query, orderBy, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // IMPORTANT: Use the SAME config as your office.html
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // 1. Initialize the Graph
+        const ctx = document.getElementById('outturnChart').getContext('2d');
+        const myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [], 
+                datasets: [{
+                    label: 'Outturn %',
+                    data: [],
+                    borderColor: '#2e7d32',
+                    backgroundColor: 'rgba(46, 125, 50, 0.1)',
+                    fill: true,
+                    tension: 0.3 // Makes the line curved and professional
+                }]
+            },
+            options: {
+                scales: {
+                    y: { beginAtZero: false, suggestedMin: 15, suggestedMax: 25 }
+                }
+            }
+        });
+
+        // 2. Real-time Listener (Olympiad Thinking: Event-Driven Architecture)
+        const q = query(collection(db, "tea_records"), orderBy("timestamp", "asc"));
+        
+        onSnapshot(q, (snapshot) => {
+            const outturns = [];
+            const labels = [];
+            
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                if(data.timestamp) {
+                    outturns.push(data.outturn);
+                    // Format date for the X-axis
+                    labels.push(data.timestamp.toDate().toLocaleDateString());
+                }
+            });
+
+            // Update Chart Data
+            myChart.data.labels = labels;
+            myChart.data.datasets[0].data = outturns;
+            myChart.update();
+
+            // 3. Logic for the Alert Message
+            const latestOutturn = outturns[outturns.length - 1];
+            const alertBox = document.getElementById('statusAlert');
+
+            if (latestOutturn < 20.5) {
+                alertBox.innerText = `🚨 CRITICAL: Outturn dropped to ${latestOutturn.toFixed(2)}%`;
+                alertBox.className = "status-card critical";
+                // Trigger Browser Notification
+                new Notification("Davora Alert", { body: `Outturn is low: ${latestOutturn.toFixed(2)}%` });
+            } else {
+                alertBox.innerText = `✅ STABLE: Current Outturn is ${latestOutturn.toFixed(2)}%`;
+                alertBox.className = "status-card healthy";
+            }
+        });
+
+        // Ask for notification permission once on load
+        if (Notification.permission !== "granted") {
+            Notification.requestPermission();
+        }
+    </script>
+</body>
+</html>
