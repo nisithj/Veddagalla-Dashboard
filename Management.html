@@ -2,153 +2,126 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Davora Group - Executive Dashboard</title>
-    
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
     <style>
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            background-color: #0d1117; /* Dark CEO theme */
-            color: white;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        .dashboard-container {
-            width: 90%;
-            max-width: 900px;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .status-card {
-            background: #161b22;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            font-size: 24px;
-            font-weight: bold;
-            border: 2px solid #30363d;
-            margin-bottom: 20px;
-        }
-        .healthy { color: #4caf50; border-color: #4caf50; }
-        .critical { color: #f44336; border-color: #f44336; animation: pulse 2s infinite; }
-        
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.4); }
-            70% { box-shadow: 0 0 0 15px rgba(244, 67, 54, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0); }
-        }
-
-        .chart-container {
-            background: white; /* Graph looks better on white for contrast */
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
+        body { font-family: 'Segoe UI', sans-serif; background: #0d1117; color: white; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .dashboard-container { width: 95%; max-width: 1000px; }
+        .stats-grid { display: flex; gap: 20px; margin-bottom: 30px; }
+        .stat-box { flex: 1; padding: 25px; border-radius: 15px; text-align: center; border: 2px solid #30363d; background: #161b22; }
+        .stat-box h3 { margin: 0; font-size: 13px; opacity: 0.7; text-transform: uppercase; }
+        .stat-box p { margin: 15px 0 0; font-size: 40px; font-weight: 800; }
+        .bg-green { background: #1b5e20 !important; border-color: #4caf50; }
+        .bg-red { background: #b71c1c !important; border-color: #f44336; }
+        .chart-section { background: white; padding: 25px; border-radius: 15px; }
     </style>
 </head>
 <body>
 
-    <div class="dashboard-container">
-        <div class="header">
-            <h1>Davora Group</h1>
-            <p>Real-Time Factory Outturn Performance</p>
+<div class="dashboard-container">
+    <h1 style="text-align: center;">Veddagala Factory</h1>
+    
+    <div class="stats-grid">
+        <div id="todayBox" class="stat-box">
+            <h3 id="targetDateLabel">Target Process Date: --</h3>
+            <p id="todayValue">0.00%</p>
         </div>
 
-        <div id="statusAlert" class="status-card">Connecting to Factory...</div>
-
-        <div class="chart-container">
-            <canvas id="outturnChart"></canvas>
+        <div id="monthBox" class="stat-box">
+            <h3 id="monthLabel">Monthly Cumulative: --</h3>
+            <p id="monthValue">0.00%</p>
         </div>
     </div>
 
+    <div class="chart-section">
+        <canvas id="outturnChart"></canvas>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, query, orderBy, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyCQHfM_2I1dxsFmfeKvqJqw-wrkIgypbX0",
+        authDomain: "veddagala-tea-factory.firebaseapp.com",
+        projectId: "veddagala-tea-factory",
+        storageBucket: "veddagala-tea-factory.firebasestorage.app",
+        messagingSenderId: "961219000630",
+        appId: "1:961219000630:web:b41785a86b5d47b1c6db97",
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // 1. Calculate Time Targets
+    const now = new Date();
+    const targetDateObj = new Date(now.getTime() - (2 * 24 * 60 * 60 * 1000));
+    const targetDateStr = targetDateObj.toISOString().split('T')[0];
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    document.getElementById('targetDateLabel').innerText = "Yield for: " + targetDateStr;
+    document.getElementById('monthLabel').innerText = "Cumulative: " + now.toLocaleString('default', { month: 'long' });
+
+    const ctx = document.getElementById('outturnChart').getContext('2d');
+    const myChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: 'Batch Outturn %', data: [], borderWidth: 3, tension: 0.3, fill: true }] }
+    });
+
+    const q = query(collection(db, "tea_records"), orderBy("leafDate", "asc"));
     
+    onSnapshot(q, (snapshot) => {
+        // --- INDEPENDENT BUCKETS ---
+        let monthMade = 0, monthLeaf = 0;
+        let todayMade = 0, todayLeaf = 0;
+        const outturns = [], labels = [];
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getFirestore, collection, query, orderBy, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        snapshot.forEach((doc) => {
+            const data = doc.data();
+            if(!data.leafDate) return;
 
-        // IMPORTANT: Use the SAME config as your office.html
-        const firebaseConfig = {
-            apiKey: "AIzaSyCQHfM_2I1dxsFmfeKvqJqw-wrkIgypbX0",
-            authDomain: "veddagala-tea-factory.firebaseapp.com",
-            projectId: "veddagala-tea-factory",
-            storageBucket: "veddagala-tea-factory.firebasestorage.app",
-            messagingSenderId: "961219000630",
-            appId: "1:961219000630:web:b41785a86b5d47b1c6db97",
-        };
+            const recordMade = data.friedTea - (data.friedTea * 0.10);
+            const rDate = new Date(data.leafDate);
 
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-
-        // 1. Initialize the Graph
-        const ctx = document.getElementById('outturnChart').getContext('2d');
-        const myChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [], 
-                datasets: [{
-                    label: 'Outturn %',
-                    data: [],
-                    borderColor: '#2e7d32',
-                    backgroundColor: 'rgba(46, 125, 50, 0.1)',
-                    fill: true,
-                    tension: 0.3 // Makes the line curved and professional
-                }]
-            },
-            options: {
-                scales: {
-                    y: { beginAtZero: false, suggestedMin: 15, suggestedMax: 25 }
-                }
+            // LOGIC A: Is this record from the current month?
+            if (rDate.getMonth() === currentMonth && rDate.getFullYear() === currentYear) {
+                monthMade += recordMade;
+                monthLeaf += data.greenLeaf;
             }
+
+            // LOGIC B: Is this record EXACTLY our -2 day target date?
+            if (data.leafDate === targetDateStr) {
+                todayMade += recordMade;
+                todayLeaf += data.greenLeaf;
+            }
+
+            outturns.push(data.outturn);
+            labels.push(data.leafDate);
         });
 
-        // 2. Real-time Listener (Olympiad Thinking: Event-Driven Architecture)
-        const q = query(collection(db, "tea_records"), orderBy("timestamp", "asc"));
-        
-        onSnapshot(q, (snapshot) => {
-            const outturns = [];
-            const labels = [];
-            
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                if(data.timestamp) {
-                    outturns.push(data.outturn);
-                    // Format date for the X-axis
-                    labels.push(data.timestamp.toDate().toLocaleDateString());
-                }
-            });
+        // Final Percentages based on weight totals
+        const finalMonth = monthLeaf > 0 ? (monthMade / monthLeaf) * 100 : 0;
+        const finalToday = todayLeaf > 0 ? (todayMade / todayLeaf) * 100 : 0;
 
-            // Update Chart Data
-            myChart.data.labels = labels;
-            myChart.data.datasets[0].data = outturns;
-            myChart.update();
+        updateUI('todayBox', 'todayValue', finalToday);
+        updateUI('monthBox', 'monthValue', finalMonth);
 
-            // 3. Logic for the Alert Message
-            const latestOutturn = outturns[outturns.length - 1];
-            const alertBox = document.getElementById('statusAlert');
+        const color = finalMonth >= 20.5 ? '#2e7d32' : '#c62828';
+        myChart.data.labels = labels;
+        myChart.data.datasets[0].data = outturns;
+        myChart.data.datasets[0].borderColor = color;
+        myChart.update();
+    });
 
-            if (latestOutturn < 20.5) {
-                alertBox.innerText = `🚨 CRITICAL: Outturn dropped to ${latestOutturn.toFixed(2)}%`;
-                alertBox.className = "status-card critical";
-                // Trigger Browser Notification
-                new Notification("Davora Alert", { body: `Outturn is low: ${latestOutturn.toFixed(2)}%` });
-            } else {
-                alertBox.innerText = `✅ STABLE: Current Outturn is ${latestOutturn.toFixed(2)}%`;
-                alertBox.className = "status-card healthy";
-            }
-        });
-
-        // Ask for notification permission once on load
-        if (Notification.permission !== "granted") {
-            Notification.requestPermission();
-        }
-    </script>
+    function updateUI(boxId, textId, val) {
+        const box = document.getElementById(boxId);
+        document.getElementById(textId).innerText = val.toFixed(2) + "%";
+        box.classList.remove('bg-green', 'bg-red');
+        if (val >= 20.5) box.classList.add('bg-green');
+        else if (val > 0) box.classList.add('bg-red');
+    }
+</script>
 </body>
 </html>
